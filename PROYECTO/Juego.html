@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAMER</title>
+    <link rel="icon" href="img/logo.png" type="imagenes/png">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+        }
+        #gameContainer {
+            text-align: center;
+            background: #16213e;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,255,255,0.3);
+        }
+        canvas {
+            border: 4px solid #0f3460;
+            background: #2a2a4e;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        #ui {
+            margin-top: 15px;
+            display: flex;
+            justify-content: space-around;
+            gap: 20px;
+        }
+        .stat {
+            background: #0f3460;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 18px;
+            border: 2px solid #00fff2;
+        }
+        .stat span {
+            color: #00fff2;
+            font-weight: bold;
+        }
+        #controls {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #aaa;
+        }
+        h1 {
+            color: #00fff2;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        #gameOver {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 40px;
+            border-radius: 10px;
+            border: 3px solid #ff0055;
+        }
+        #gameOver.show {
+            display: block;
+        }
+        button {
+            background: #00fff2;
+            border: none;
+            padding: 10px 30px;
+            font-size: 18px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #00cccc;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <h1>🗡️ PIXAVENTURA 🗡️</h1>
+        <canvas id="gameCanvas" width="640" height="480"></canvas>
+        <div id="ui">
+            <div class="stat">❤️ Vida: <span id="health">100</span></div>
+            <div class="stat">⚔️ Enemigos: <span id="enemies">0</span></div>
+            <div class="stat">💎 Gemas: <span id="gems">0</span></div>
+            <div class="stat">⭐ Puntos: <span id="score">0</span></div>
+        </div>
+        <div id="controls">
+            WASD o Flechas: Mover | ESPACIO: Atacar | Click: Atacar dirección
+        </div>
+        <div id="gameOver">
+            <h2 style="color: #ff0055; margin-bottom: 20px;">¡GAME OVER!</h2>
+            <p style="font-size: 20px;">Puntuación Final: <span id="finalScore">0</span></p>
+            <button onclick="location.reload()">Jugar de Nuevo</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Estado del juego
+        const game = {
+            player: {
+                x: 320,
+                y: 240,
+                size: 16,
+                speed: 3,
+                health: 100,
+                maxHealth: 100,
+                attackCooldown: 0,
+                direction: 'right'
+            },
+            enemies: [],
+            gems: [],
+            projectiles: [],
+            particles: [],
+            score: 0,
+            enemiesKilled: 0,
+            gemsCollected: 0,
+            keys: {},
+            mousePos: { x: 0, y: 0 }
+        };
+
+        // Clase Enemigo
+        class Enemy {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.size = 14;
+                this.speed = 1.5;
+                this.health = 3;
+                this.color = '#ff0055';
+            }
+
+            update() {
+                const dx = game.player.x - this.x;
+                const dy = game.player.y - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist > 5) {
+                    this.x += (dx / dist) * this.speed;
+                    this.y += (dy / dist) * this.speed;
+                }
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+                ctx.fillStyle = '#ff6b9d';
+                ctx.fillRect(this.x - this.size/2 + 2, this.y - this.size/2 + 2, this.size - 4, this.size - 4);
+                // Ojos
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(this.x - 4, this.y - 4, 3, 3);
+                ctx.fillRect(this.x + 1, this.y - 4, 3, 3);
+            }
+        }
+
+        // Clase Gema
+        class Gem {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.size = 10;
+                this.angle = 0;
+            }
+
+            update() {
+                this.angle += 0.1;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.fillStyle = '#ffd700';
+                ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                ctx.fillStyle = '#ffed4e';
+                ctx.fillRect(-this.size/2 + 2, -this.size/2 + 2, this.size - 4, this.size - 4);
+                ctx.restore();
+            }
+        }
+
+        // Clase Proyectil
+        class Projectile {
+            constructor(x, y, dx, dy) {
+                this.x = x;
+                this.y = y;
+                this.dx = dx;
+                this.dy = dy;
+                this.size = 6;
+                this.life = 60;
+            }
+
+            update() {
+                this.x += this.dx;
+                this.y += this.dy;
+                this.life--;
+            }
+
+            draw() {
+                ctx.fillStyle = '#00fff2';
+                ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(this.x - this.size/2 + 1, this.y - this.size/2 + 1, this.size - 2, this.size - 2);
+            }
+        }
+
+        // Clase Partícula
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 4;
+                this.vy = (Math.random() - 0.5) * 4;
+                this.life = 30;
+                this.color = color;
+                this.size = 4;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+                this.size *= 0.95;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.size, this.size);
+            }
+        }
+
+        // Generar enemigos
+        function spawnEnemy() {
+            const side = Math.floor(Math.random() * 4);
+            let x, y;
+            
+            switch(side) {
+                case 0: x = Math.random() * canvas.width; y = -20; break;
+                case 1: x = canvas.width + 20; y = Math.random() * canvas.height; break;
+                case 2: x = Math.random() * canvas.width; y = canvas.height + 20; break;
+                case 3: x = -20; y = Math.random() * canvas.height; break;
+            }
+            
+            game.enemies.push(new Enemy(x, y));
+        }
+
+        // Generar gemas
+        function spawnGem() {
+            const x = Math.random() * (canvas.width - 40) + 20;
+            const y = Math.random() * (canvas.height - 40) + 20;
+            game.gems.push(new Gem(x, y));
+        }
+
+        // Atacar
+        function attack(targetX, targetY) {
+            if (game.player.attackCooldown <= 0) {
+                const dx = targetX - game.player.x;
+                const dy = targetY - game.player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist > 0) {
+                    const speed = 8;
+                    game.projectiles.push(new Projectile(
+                        game.player.x,
+                        game.player.y,
+                        (dx / dist) * speed,
+                        (dy / dist) * speed
+                    ));
+                    game.player.attackCooldown = 20;
+                }
+            }
+        }
+
+        // Crear partículas
+        function createParticles(x, y, color, count = 8) {
+            for (let i = 0; i < count; i++) {
+                game.particles.push(new Particle(x, y, color));
+            }
+        }
+
+        // Controles
+        document.addEventListener('keydown', (e) => {
+            game.keys[e.key.toLowerCase()] = true;
+            if (e.key === ' ') {
+                e.preventDefault();
+                const dx = game.player.direction === 'right' ? 1 : game.player.direction === 'left' ? -1 : 0;
+                const dy = game.player.direction === 'down' ? 1 : game.player.direction === 'up' ? -1 : 0;
+                attack(game.player.x + dx * 50, game.player.y + dy * 50);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            game.keys[e.key.toLowerCase()] = false;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            game.mousePos.x = e.clientX - rect.left;
+            game.mousePos.y = e.clientY - rect.top;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            attack(x, y);
+        });
+
+        // Soporte para gamepad Genius Maxfire G-08XU
+        let gamepadIndex = null;
+        let lastGamepadState = { buttons: [], axes: [] };
+
+        window.addEventListener('gamepadconnected', (e) => {
+            gamepadIndex = e.gamepad.index;
+            console.log('Gamepad conectado:', e.gamepad.id);
+            showGamepadNotification('🎮 Mando conectado!');
+        });
+
+        window.addEventListener('gamepaddisconnected', (e) => {
+            gamepadIndex = null;
+            console.log('Gamepad desconectado');
+            showGamepadNotification('❌ Mando desconectado');
+        });
+
+        function showGamepadNotification(text) {
+            const notification = document.createElement('div');
+            notification.textContent = text;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #00fff2;
+                color: #000;
+                padding: 15px 25px;
+                border-radius: 8px;
+                font-weight: bold;
+                z-index: 1000;
+                animation: fadeInOut 2s;
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 2000);
+        }
+
+        function handleGamepad() {
+            if (gamepadIndex === null) return;
+
+            const gamepads = navigator.getGamepads();
+            const gamepad = gamepads[gamepadIndex];
+            
+            if (!gamepad) return;
+
+            // Joystick izquierdo para movimiento (axes 0 y 1)
+            const leftStickX = gamepad.axes[0];
+            const leftStickY = gamepad.axes[1];
+            const deadzone = 0.15;
+
+            if (Math.abs(leftStickX) > deadzone || Math.abs(leftStickY) > deadzone) {
+                const mag = Math.sqrt(leftStickX * leftStickX + leftStickY * leftStickY);
+                if (mag > deadzone) {
+                    game.player.x += (leftStickX / mag) * game.player.speed * 1.5;
+                    game.player.y += (leftStickY / mag) * game.player.speed * 1.5;
+                    
+                    // Actualizar dirección según el stick
+                    if (Math.abs(leftStickX) > Math.abs(leftStickY)) {
+                        game.player.direction = leftStickX > 0 ? 'right' : 'left';
+                    } else {
+                        game.player.direction = leftStickY > 0 ? 'down' : 'up';
+                    }
+                }
+            }
+
+            // Joystick derecho para apuntar (axes 2 y 3)
+            const rightStickX = gamepad.axes[2];
+            const rightStickY = gamepad.axes[3];
+
+            // D-Pad para movimiento alternativo (botones 12-15)
+            if (gamepad.buttons[12]?.pressed) { // Arriba
+                game.player.y -= game.player.speed;
+                game.player.direction = 'up';
+            }
+            if (gamepad.buttons[13]?.pressed) { // Abajo
+                game.player.y += game.player.speed;
+                game.player.direction = 'down';
+            }
+            if (gamepad.buttons[14]?.pressed) { // Izquierda
+                game.player.x -= game.player.speed;
+                game.player.direction = 'left';
+            }
+            if (gamepad.buttons[15]?.pressed) { // Derecha
+                game.player.x += game.player.speed;
+                game.player.direction = 'right';
+            }
+
+            // Botones de ataque
+            // Botón 0 (A/Cross) - Ataque en dirección actual
+            if (gamepad.buttons[0]?.pressed && !lastGamepadState.buttons[0]) {
+                const directions = {
+                    'right': [1, 0],
+                    'left': [-1, 0],
+                    'down': [0, 1],
+                    'up': [0, -1]
+                };
+                const [dx, dy] = directions[game.player.direction];
+                attack(game.player.x + dx * 50, game.player.y + dy * 50);
+            }
+
+            // Botón 1 (B/Circle) - Ataque en dirección actual
+            if (gamepad.buttons[1]?.pressed && !lastGamepadState.buttons[1]) {
+                const directions = {
+                    'right': [1, 0],
+                    'left': [-1, 0],
+                    'down': [0, 1],
+                    'up': [0, -1]
+                };
+                const [dx, dy] = directions[game.player.direction];
+                attack(game.player.x + dx * 50, game.player.y + dy * 50);
+            }
+
+            // Botón 2 (X/Square) - Ataque
+            if (gamepad.buttons[2]?.pressed && !lastGamepadState.buttons[2]) {
+                const directions = {
+                    'right': [1, 0],
+                    'left': [-1, 0],
+                    'down': [0, 1],
+                    'up': [0, -1]
+                };
+                const [dx, dy] = directions[game.player.direction];
+                attack(game.player.x + dx * 50, game.player.y + dy * 50);
+            }
+
+            // Botón 3 (Y/Triangle) - Ataque
+            if (gamepad.buttons[3]?.pressed && !lastGamepadState.buttons[3]) {
+                const directions = {
+                    'right': [1, 0],
+                    'left': [-1, 0],
+                    'down': [0, 1],
+                    'up': [0, -1]
+                };
+                const [dx, dy] = directions[game.player.direction];
+                attack(game.player.x + dx * 50, game.player.y + dy * 50);
+            }
+
+            // Triggers (L1/R1 - botones 4 y 5) para ataque rápido
+            if (gamepad.buttons[4]?.pressed || gamepad.buttons[5]?.pressed) {
+                if (game.player.attackCooldown <= 0) {
+                    const directions = {
+                        'right': [1, 0],
+                        'left': [-1, 0],
+                        'down': [0, 1],
+                        'up': [0, -1]
+                    };
+                    const [dx, dy] = directions[game.player.direction];
+                    attack(game.player.x + dx * 50, game.player.y + dy * 50);
+                }
+            }
+
+            // Joystick derecho para disparo direccional
+            if (Math.abs(rightStickX) > deadzone || Math.abs(rightStickY) > deadzone) {
+                const mag = Math.sqrt(rightStickX * rightStickX + rightStickY * rightStickY);
+                if (mag > deadzone && game.player.attackCooldown <= 0) {
+                    attack(
+                        game.player.x + rightStickX * 100,
+                        game.player.y + rightStickY * 100
+                    );
+                }
+            }
+
+            // Guardar estado anterior de botones
+            lastGamepadState.buttons = gamepad.buttons.map(b => b.pressed);
+            lastGamepadState.axes = [...gamepad.axes];
+        }
+
+        // Actualizar juego
+        function update() {
+            // Mover jugador
+            let dx = 0, dy = 0;
+            if (game.keys['w'] || game.keys['arrowup']) { dy = -1; game.player.direction = 'up'; }
+            if (game.keys['s'] || game.keys['arrowdown']) { dy = 1; game.player.direction = 'down'; }
+            if (game.keys['a'] || game.keys['arrowleft']) { dx = -1; game.player.direction = 'left'; }
+            if (game.keys['d'] || game.keys['arrowright']) { dx = 1; game.player.direction = 'right'; }
+
+            if (dx !== 0 || dy !== 0) {
+                const mag = Math.sqrt(dx * dx + dy * dy);
+                game.player.x += (dx / mag) * game.player.speed;
+                game.player.y += (dy / mag) * game.player.speed;
+            }
+
+            // Mantener jugador en pantalla
+            game.player.x = Math.max(game.player.size, Math.min(canvas.width - game.player.size, game.player.x));
+            game.player.y = Math.max(game.player.size, Math.min(canvas.height - game.player.size, game.player.y));
+
+            // Cooldown de ataque
+            if (game.player.attackCooldown > 0) game.player.attackCooldown--;
+
+            // Actualizar enemigos
+            game.enemies.forEach((enemy, i) => {
+                enemy.update();
+
+                // Colisión con jugador
+                const dx = enemy.x - game.player.x;
+                const dy = enemy.y - game.player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < game.player.size + enemy.size) {
+                    game.player.health -= 0.5;
+                    createParticles(enemy.x, enemy.y, '#ff0055', 3);
+                }
+
+                // Colisión con proyectiles
+                game.projectiles.forEach((proj, j) => {
+                    const pdx = proj.x - enemy.x;
+                    const pdy = proj.y - enemy.y;
+                    const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+                    
+                    if (pdist < enemy.size + proj.size) {
+                        enemy.health--;
+                        game.projectiles.splice(j, 1);
+                        createParticles(enemy.x, enemy.y, '#00fff2', 5);
+                        
+                        if (enemy.health <= 0) {
+                            game.enemies.splice(i, 1);
+                            game.enemiesKilled++;
+                            game.score += 100;
+                            createParticles(enemy.x, enemy.y, '#ff0055', 12);
+                            
+                            // Chance de soltar gema
+                            if (Math.random() < 0.3) {
+                                spawnGem();
+                            }
+                        }
+                    }
+                });
+            });
+
+            // Actualizar gemas
+            game.gems.forEach((gem, i) => {
+                gem.update();
+                
+                const dx = gem.x - game.player.x;
+                const dy = gem.y - game.player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < game.player.size + gem.size) {
+                    game.gems.splice(i, 1);
+                    game.gemsCollected++;
+                    game.score += 50;
+                    game.player.health = Math.min(game.player.maxHealth, game.player.health + 10);
+                    createParticles(gem.x, gem.y, '#ffd700', 10);
+                }
+            });
+
+            // Actualizar proyectiles
+            game.projectiles = game.projectiles.filter(proj => {
+                proj.update();
+                return proj.life > 0 && proj.x > 0 && proj.x < canvas.width && proj.y > 0 && proj.y < canvas.height;
+            });
+
+            // Actualizar partículas
+            game.particles = game.particles.filter(p => {
+                p.update();
+                return p.life > 0;
+            });
+
+            // Game Over
+            if (game.player.health <= 0) {
+                document.getElementById('gameOver').classList.add('show');
+                document.getElementById('finalScore').textContent = game.score;
+                return false;
+            }
+
+            return true;
+        }
+
+        // Dibujar jugador
+        function drawPlayer() {
+            const p = game.player;
+            
+            // Cuerpo
+            ctx.fillStyle = '#00fff2';
+            ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+            
+            // Detalles
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(p.x - p.size/2 + 4, p.y - p.size/2 + 4, p.size - 8, p.size - 8);
+            
+            // Ojos según dirección
+            ctx.fillStyle = '#000';
+            if (p.direction === 'right') {
+                ctx.fillRect(p.x + 2, p.y - 3, 3, 3);
+                ctx.fillRect(p.x + 2, p.y + 1, 3, 3);
+            } else if (p.direction === 'left') {
+                ctx.fillRect(p.x - 5, p.y - 3, 3, 3);
+                ctx.fillRect(p.x - 5, p.y + 1, 3, 3);
+            } else {
+                ctx.fillRect(p.x - 5, p.y - 3, 3, 3);
+                ctx.fillRect(p.x + 2, p.y - 3, 3, 3);
+            }
+
+            // Barra de vida
+            const barWidth = 30;
+            const barHeight = 4;
+            ctx.fillStyle = '#ff0055';
+            ctx.fillRect(p.x - barWidth/2, p.y - p.size - 10, barWidth, barHeight);
+            ctx.fillStyle = '#00ff00';
+            ctx.fillRect(p.x - barWidth/2, p.y - p.size - 10, (p.health / p.maxHealth) * barWidth, barHeight);
+        }
+
+        // Dibujar todo
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Fondo de cuadrícula
+            ctx.strokeStyle = '#1a1a3e';
+            for (let i = 0; i < canvas.width; i += 32) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, canvas.height);
+                ctx.stroke();
+            }
+            for (let i = 0; i < canvas.height; i += 32) {
+                ctx.beginPath();
+                ctx.moveTo(0, i);
+                ctx.lineTo(canvas.width, i);
+                ctx.stroke();
+            }
+
+            // Dibujar elementos
+            game.gems.forEach(gem => gem.draw());
+            game.enemies.forEach(enemy => enemy.draw());
+            game.projectiles.forEach(proj => proj.draw());
+            drawPlayer();
+            game.particles.forEach(p => p.draw());
+
+            // Actualizar UI
+            document.getElementById('health').textContent = Math.max(0, Math.floor(game.player.health));
+            document.getElementById('enemies').textContent = game.enemiesKilled;
+            document.getElementById('gems').textContent = game.gemsCollected;
+            document.getElementById('score').textContent = game.score;
+        }
+
+        // Loop del juego
+        let enemySpawnTimer = 0;
+        let gemSpawnTimer = 0;
+
+        function gameLoop() {
+            if (update()) {
+                draw();
+
+                // Spawn enemigos
+                enemySpawnTimer++;
+                if (enemySpawnTimer > 120) {
+                    spawnEnemy();
+                    enemySpawnTimer = 0;
+                }
+
+                // Spawn gemas
+                gemSpawnTimer++;
+                if (gemSpawnTimer > 300) {
+                    spawnGem();
+                    gemSpawnTimer = 0;
+                }
+
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        // Iniciar juego
+        spawnGem();
+        spawnGem();
+        gameLoop();
+    </script>
+</body>
+</html>
